@@ -1,0 +1,151 @@
+import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
+import { useMemo, useState } from "react";
+import { findOptionModel, videoAspectRatios, videoDurations, videoModels, videoResolutions } from "./model-options";
+import { OptionDropdown } from "./form-fields";
+import { collectSingleMediaUrl, MediaFile, parseOptionalInteger, runFal } from "./fal";
+import { ResultView } from "./result-view";
+
+type CreateVideoValues = {
+  model: string;
+  prompt: string;
+  imageFiles: string[];
+  imageUrl: string;
+  endImageFiles: string[];
+  endImageUrl: string;
+  resolution: string;
+  duration: string;
+  aspectRatio: string;
+  generateAudio: boolean;
+  seed: string;
+};
+
+type VideoOutput = {
+  video?: MediaFile;
+  seed?: number;
+};
+
+export default function Command() {
+  const [modelId, setModelId] = useState(videoModels[0].id);
+  const selectedModel = useMemo(() => findOptionModel(videoModels, modelId), [modelId]);
+  const { push } = useNavigation();
+
+  async function handleSubmit(values: CreateVideoValues) {
+    try {
+      const model = findOptionModel(videoModels, values.model);
+      const prompt = values.prompt.trim();
+      if (!prompt) {
+        await showToast({ style: Toast.Style.Failure, title: "Prompt is required" });
+        return;
+      }
+
+      const imageUrl =
+        model.inputMode === "image" ? await collectSingleMediaUrl(values.imageFiles, values.imageUrl) : undefined;
+      const endImageUrl =
+        model.inputMode === "image" && (values.endImageFiles?.length || values.endImageUrl?.trim())
+          ? await collectSingleMediaUrl(values.endImageFiles, values.endImageUrl)
+          : undefined;
+
+      const result = await runFal<VideoOutput>(
+        model.endpoint,
+        {
+          prompt,
+          image_url: imageUrl,
+          end_image_url: endImageUrl,
+          resolution: values.resolution || "720p",
+          duration: values.duration || "auto",
+          aspect_ratio: values.aspectRatio || "auto",
+          generate_audio: values.generateAudio,
+          seed: parseOptionalInteger(values.seed),
+        },
+        "Creating video",
+      );
+
+      push(
+        <ResultView
+          title="Created Video"
+          commandType="create-video"
+          mediaKind="video"
+          modelTitle={model.title}
+          endpoint={model.endpoint}
+          requestId={result.requestId}
+          prompt={prompt}
+          media={result.data.video ? [result.data.video] : []}
+          output={result.data}
+        />,
+      );
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Could not create video",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return (
+    <Form
+      enableDrafts
+      navigationTitle="Create Video"
+      actions={
+        <ActionPanel>
+          <Action.SubmitForm title="Create Video" onSubmit={handleSubmit} />
+        </ActionPanel>
+      }
+    >
+      <OptionDropdown
+        id="model"
+        title="Model"
+        options={videoModels.map((model) => ({ title: model.title, value: model.id }))}
+        value={modelId}
+        onChange={setModelId}
+        info={selectedModel.description}
+        storeValue
+      />
+      <Form.Description title="Endpoint" text={selectedModel.endpoint} />
+      <Form.TextArea
+        id="prompt"
+        title="Prompt"
+        placeholder="Describe scene, action, camera, sound, and dialogue. Put spoken dialogue in quotes."
+        enableMarkdown={false}
+      />
+
+      {selectedModel.inputMode === "image" ? (
+        <>
+          <Form.Separator />
+          <Form.FilePicker
+            id="imageFiles"
+            title="Start Frame"
+            allowMultipleSelection={false}
+            canChooseDirectories={false}
+          />
+          <Form.TextField
+            id="imageUrl"
+            title="Start URL"
+            placeholder="Optional URL if you do not choose a file"
+            storeValue
+          />
+          <Form.FilePicker
+            id="endImageFiles"
+            title="End Frame"
+            allowMultipleSelection={false}
+            canChooseDirectories={false}
+          />
+          <Form.TextField id="endImageUrl" title="End URL" placeholder="Optional final frame URL" storeValue />
+        </>
+      ) : null}
+
+      <Form.Separator />
+      <OptionDropdown id="resolution" title="Resolution" options={videoResolutions} defaultValue="720p" storeValue />
+      <OptionDropdown id="duration" title="Duration" options={videoDurations} defaultValue="auto" storeValue />
+      <OptionDropdown
+        id="aspectRatio"
+        title="Aspect Ratio"
+        options={videoAspectRatios}
+        defaultValue="auto"
+        storeValue
+      />
+      <Form.Checkbox id="generateAudio" title="Audio" label="Generate synchronized audio" defaultValue storeValue />
+      <Form.TextField id="seed" title="Seed" placeholder="Optional integer" storeValue />
+    </Form>
+  );
+}
