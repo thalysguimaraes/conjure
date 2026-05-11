@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/extension-icon.png" alt="Conjure" width="128" height="128" />
+  <img src="assets/symbol.png" alt="Conjure" width="128" height="128" />
 
   # Conjure
 
