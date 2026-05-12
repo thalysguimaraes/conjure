@@ -1,4 +1,14 @@
-import { Action, ActionPanel, closeMainWindow, Form, PopToRootType, showToast, Toast } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  closeMainWindow,
+  Form,
+  launchCommand,
+  LaunchType,
+  PopToRootType,
+  showToast,
+  Toast,
+} from "@raycast/api";
 import { useMemo, useState } from "react";
 import { findOptionModel, imageCreateModels, outputFormats, safetyTolerances, ImageCreateModel } from "./model-options";
 import { OptionDropdown } from "./form-fields";
@@ -21,6 +31,14 @@ type CreateImageValues = {
 
 type ImageOutput = {
   images?: MediaFile[];
+};
+
+export type CreateImageJobContext = {
+  command: "create-image";
+  modelId: string;
+  prompt: string;
+  values: CreateImageValues;
+  numImages: number;
 };
 
 export default function Command() {
@@ -48,20 +66,16 @@ export default function Command() {
       return;
     }
 
-    const model = findOptionModel(imageCreateModels, values.model);
-
-    await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
-
-    await runJob<ImageOutput>({
-      label: "Image",
-      commandType: "create-image",
-      mediaKind: "image",
-      modelTitle: model.title,
-      endpoint: model.endpoint,
+    const context: CreateImageJobContext = {
+      command: "create-image",
+      modelId: values.model,
       prompt,
-      prepare: async () => ({ input: buildImageInput(model, values, prompt, numImages) }),
-      extractMedia: (data) => data.images ?? [],
-    });
+      values,
+      numImages,
+    };
+
+    await launchCommand({ name: "worker", type: LaunchType.Background, context });
+    await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
   }
 
   return (
@@ -143,6 +157,20 @@ export default function Command() {
       <Form.TextField id="seed" title="Seed" placeholder="Optional integer" storeValue />
     </Form>
   );
+}
+
+export async function runCreateImageFromContext(ctx: CreateImageJobContext): Promise<void> {
+  const model = findOptionModel(imageCreateModels, ctx.modelId);
+  await runJob<ImageOutput>({
+    label: "Image",
+    commandType: "create-image",
+    mediaKind: "image",
+    modelTitle: model.title,
+    endpoint: model.endpoint,
+    prompt: ctx.prompt,
+    prepare: async () => ({ input: buildImageInput(model, ctx.values, ctx.prompt, ctx.numImages) }),
+    extractMedia: (data) => data.images ?? [],
+  });
 }
 
 function buildImageInput(model: ImageCreateModel, values: CreateImageValues, prompt: string, numImages: number) {

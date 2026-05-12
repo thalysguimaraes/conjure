@@ -1,4 +1,14 @@
-import { Action, ActionPanel, closeMainWindow, Form, PopToRootType, showToast, Toast } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  closeMainWindow,
+  Form,
+  launchCommand,
+  LaunchType,
+  PopToRootType,
+  showToast,
+  Toast,
+} from "@raycast/api";
 import { useMemo, useState } from "react";
 import {
   accelerationLevels,
@@ -49,6 +59,13 @@ type ImageOutput = {
   images?: MediaFile[];
 };
 
+export type EditImageJobContext = {
+  command: "edit-image";
+  modelId: string;
+  prompt: string;
+  values: EditImageValues;
+};
+
 export default function Command() {
   const [modelId, setModelId] = useState(imageEditModels[0].id);
   const selectedModel = useMemo(() => findOptionModel(imageEditModels, modelId), [modelId]);
@@ -77,32 +94,15 @@ export default function Command() {
       return;
     }
 
-    const outputDirectory = inputDirectory(values.imageFiles);
-
-    await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
-
-    await runJob<ImageOutput>({
-      label: "Edit",
-      commandType: "edit-image",
-      mediaKind: "image",
-      modelTitle: model.title,
-      endpoint: model.endpoint,
+    const context: EditImageJobContext = {
+      command: "edit-image",
+      modelId: values.model,
       prompt,
-      outputDirectory,
-      prepare: async () => {
-        const imageUrls = await collectMediaUrls(values.imageFiles, values.imageUrls);
-        if (!imageUrls.length) throw new Error("No usable input images.");
-        if (model.inputMode === "single" && imageUrls.length > 1) {
-          throw new Error("Model accepts only one image.");
-        }
-        const input =
-          model.id === "qwen-image-edit"
-            ? buildQwenInput(values, prompt, imageUrls[0])
-            : buildNanoInput(model, values, prompt, imageUrls);
-        return { input };
-      },
-      extractMedia: (data) => data.images ?? [],
-    });
+      values,
+    };
+
+    await launchCommand({ name: "worker", type: LaunchType.Background, context });
+    await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
   }
 
   return (
@@ -227,6 +227,32 @@ function QwenFields() {
       <Form.TextField id="seed" title="Seed" placeholder="Optional integer" storeValue />
     </>
   );
+}
+
+export async function runEditImageFromContext(ctx: EditImageJobContext): Promise<void> {
+  const model = findOptionModel(imageEditModels, ctx.modelId);
+  await runJob<ImageOutput>({
+    label: "Edit",
+    commandType: "edit-image",
+    mediaKind: "image",
+    modelTitle: model.title,
+    endpoint: model.endpoint,
+    prompt: ctx.prompt,
+    outputDirectory: inputDirectory(ctx.values.imageFiles),
+    prepare: async () => {
+      const imageUrls = await collectMediaUrls(ctx.values.imageFiles, ctx.values.imageUrls);
+      if (!imageUrls.length) throw new Error("No usable input images.");
+      if (model.inputMode === "single" && imageUrls.length > 1) {
+        throw new Error("Model accepts only one image.");
+      }
+      const input =
+        model.id === "qwen-image-edit"
+          ? buildQwenInput(ctx.values, ctx.prompt, imageUrls[0])
+          : buildNanoInput(model, ctx.values, ctx.prompt, imageUrls);
+      return { input };
+    },
+    extractMedia: (data) => data.images ?? [],
+  });
 }
 
 function buildNanoInput(model: ImageEditModel, values: EditImageValues, prompt: string, imageUrls: string[]) {

@@ -1,4 +1,14 @@
-import { Action, ActionPanel, closeMainWindow, Form, PopToRootType, showToast, Toast } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  closeMainWindow,
+  Form,
+  launchCommand,
+  LaunchType,
+  PopToRootType,
+  showToast,
+  Toast,
+} from "@raycast/api";
 import { useMemo, useState } from "react";
 import { findOptionModel, videoAspectRatios, videoDurations, videoModels, videoResolutions } from "./model-options";
 import { OptionDropdown } from "./form-fields";
@@ -24,6 +34,13 @@ type VideoOutput = {
   seed?: number;
 };
 
+export type CreateVideoJobContext = {
+  command: "create-video";
+  modelId: string;
+  prompt: string;
+  values: CreateVideoValues;
+};
+
 export default function Command() {
   const [modelId, setModelId] = useState(videoModels[0].id);
   const selectedModel = useMemo(() => findOptionModel(videoModels, modelId), [modelId]);
@@ -45,40 +62,15 @@ export default function Command() {
       }
     }
 
-    const outputDirectory = model.inputMode === "image" ? inputDirectory(values.imageFiles) : undefined;
-
-    await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
-
-    await runJob<VideoOutput>({
-      label: "Video",
-      commandType: "create-video",
-      mediaKind: "video",
-      modelTitle: model.title,
-      endpoint: model.endpoint,
+    const context: CreateVideoJobContext = {
+      command: "create-video",
+      modelId: values.model,
       prompt,
-      outputDirectory,
-      prepare: async () => {
-        const imageUrl =
-          model.inputMode === "image" ? await collectSingleMediaUrl(values.imageFiles, values.imageUrl) : undefined;
-        const endImageUrl =
-          model.inputMode === "image" && (values.endImageFiles?.length || values.endImageUrl?.trim())
-            ? await collectSingleMediaUrl(values.endImageFiles, values.endImageUrl)
-            : undefined;
-        return {
-          input: {
-            prompt,
-            image_url: imageUrl,
-            end_image_url: endImageUrl,
-            resolution: values.resolution || "720p",
-            duration: values.duration || "auto",
-            aspect_ratio: values.aspectRatio || "auto",
-            generate_audio: values.generateAudio,
-            seed: parseOptionalInteger(values.seed),
-          },
-        };
-      },
-      extractMedia: (data) => (data.video ? [data.video] : []),
-    });
+      values,
+    };
+
+    await launchCommand({ name: "worker", type: LaunchType.Background, context });
+    await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
   }
 
   return (
@@ -147,4 +139,40 @@ export default function Command() {
       <Form.TextField id="seed" title="Seed" placeholder="Optional integer" storeValue />
     </Form>
   );
+}
+
+export async function runCreateVideoFromContext(ctx: CreateVideoJobContext): Promise<void> {
+  const model = findOptionModel(videoModels, ctx.modelId);
+  await runJob<VideoOutput>({
+    label: "Video",
+    commandType: "create-video",
+    mediaKind: "video",
+    modelTitle: model.title,
+    endpoint: model.endpoint,
+    prompt: ctx.prompt,
+    outputDirectory: model.inputMode === "image" ? inputDirectory(ctx.values.imageFiles) : undefined,
+    prepare: async () => {
+      const imageUrl =
+        model.inputMode === "image"
+          ? await collectSingleMediaUrl(ctx.values.imageFiles, ctx.values.imageUrl)
+          : undefined;
+      const endImageUrl =
+        model.inputMode === "image" && (ctx.values.endImageFiles?.length || ctx.values.endImageUrl?.trim())
+          ? await collectSingleMediaUrl(ctx.values.endImageFiles, ctx.values.endImageUrl)
+          : undefined;
+      return {
+        input: {
+          prompt: ctx.prompt,
+          image_url: imageUrl,
+          end_image_url: endImageUrl,
+          resolution: ctx.values.resolution || "720p",
+          duration: ctx.values.duration || "auto",
+          aspect_ratio: ctx.values.aspectRatio || "auto",
+          generate_audio: ctx.values.generateAudio,
+          seed: parseOptionalInteger(ctx.values.seed),
+        },
+      };
+    },
+    extractMedia: (data) => (data.video ? [data.video] : []),
+  });
 }

@@ -42,6 +42,12 @@
       "description": "Browse, copy, and download recent fal.ai outputs.",
       "mode": "view",
       "keywords": ["fal", "history", "recent", "gallery"]
+    },
+    {
+      "name": "worker",
+      "title": "Conjure Worker",
+      "description": "Background job runner used internally by Conjure. Not meant to be launched directly.",
+      "mode": "no-view"
     }
   ],
   "preferences": [

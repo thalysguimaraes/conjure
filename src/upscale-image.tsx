@@ -1,4 +1,14 @@
-import { Action, ActionPanel, closeMainWindow, Form, PopToRootType, showToast, Toast } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  closeMainWindow,
+  Form,
+  launchCommand,
+  LaunchType,
+  PopToRootType,
+  showToast,
+  Toast,
+} from "@raycast/api";
 import { useMemo, useState } from "react";
 import { findOptionModel, jpegPngFormats, subjectDetectionModes, topazModels, upscaleModels } from "./model-options";
 import { OptionDropdown } from "./form-fields";
@@ -43,6 +53,12 @@ type UpscaleOutput = {
   seed?: number;
 };
 
+export type UpscaleJobContext = {
+  command: "upscale-image";
+  modelId: string;
+  values: UpscaleValues;
+};
+
 const seedvrOutputFormats = [
   { title: "JPG", value: "jpg" },
   { title: "PNG", value: "png" },
@@ -63,25 +79,14 @@ export default function Command() {
       return;
     }
 
-    const model = findOptionModel(upscaleModels, values.model);
-    const outputDirectory = inputDirectory(values.imageFiles);
+    const context: UpscaleJobContext = {
+      command: "upscale-image",
+      modelId: values.model,
+      values,
+    };
 
+    await launchCommand({ name: "worker", type: LaunchType.Background, context });
     await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
-
-    await runJob<UpscaleOutput>({
-      label: "Upscale",
-      commandType: "upscale-image",
-      mediaKind: "image",
-      modelTitle: model.title,
-      endpoint: model.endpoint,
-      outputDirectory,
-      prepare: async () => {
-        const imageUrl = await collectSingleMediaUrl(values.imageFiles, values.imageUrl);
-        const input = model.id === "seedvr" ? buildSeedVrInput(values, imageUrl) : buildTopazInput(values, imageUrl);
-        return { input };
-      },
-      extractMedia: (data) => (data.image ? [data.image] : []),
-    });
   }
 
   return (
@@ -250,6 +255,25 @@ function TopazFields({
       ) : null}
     </>
   );
+}
+
+export async function runUpscaleFromContext(ctx: UpscaleJobContext): Promise<void> {
+  const model = findOptionModel(upscaleModels, ctx.modelId);
+  await runJob<UpscaleOutput>({
+    label: "Upscale",
+    commandType: "upscale-image",
+    mediaKind: "image",
+    modelTitle: model.title,
+    endpoint: model.endpoint,
+    outputDirectory: inputDirectory(ctx.values.imageFiles),
+    prepare: async () => {
+      const imageUrl = await collectSingleMediaUrl(ctx.values.imageFiles, ctx.values.imageUrl);
+      const input =
+        model.id === "seedvr" ? buildSeedVrInput(ctx.values, imageUrl) : buildTopazInput(ctx.values, imageUrl);
+      return { input };
+    },
+    extractMedia: (data) => (data.image ? [data.image] : []),
+  });
 }
 
 function buildSeedVrInput(values: UpscaleValues, imageUrl: string) {
