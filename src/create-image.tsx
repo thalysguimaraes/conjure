@@ -1,9 +1,9 @@
-import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
+import { Action, ActionPanel, closeMainWindow, Form, PopToRootType, showToast, Toast } from "@raycast/api";
 import { useMemo, useState } from "react";
 import { findOptionModel, imageCreateModels, outputFormats, safetyTolerances, ImageCreateModel } from "./model-options";
 import { OptionDropdown } from "./form-fields";
-import { parseInteger, parseOptionalInteger, runFal, MediaFile } from "./fal";
-import { ResultView } from "./result-view";
+import { MediaFile, parseInteger, parseOptionalInteger } from "./fal";
+import { runJob } from "./jobs";
 
 type CreateImageValues = {
   model: string;
@@ -21,46 +21,47 @@ type CreateImageValues = {
 
 type ImageOutput = {
   images?: MediaFile[];
-  description?: string;
 };
 
 export default function Command() {
   const [modelId, setModelId] = useState(imageCreateModels[0].id);
   const selectedModel = useMemo(() => findOptionModel(imageCreateModels, modelId), [modelId]);
-  const { push } = useNavigation();
 
   async function handleSubmit(values: CreateImageValues) {
+    const prompt = values.prompt.trim();
+    if (!prompt) {
+      await showToast({ style: Toast.Style.Failure, title: "Prompt is required" });
+      return;
+    }
+
+    let numImages: number;
     try {
-      const model = findOptionModel(imageCreateModels, values.model);
-      const prompt = values.prompt.trim();
-      if (!prompt) {
-        await showToast({ style: Toast.Style.Failure, title: "Prompt is required" });
-        return;
+      numImages = parseInteger(values.numImages, 1);
+      if (numImages < 1 || numImages > 4) {
+        throw new Error("Images must be between 1 and 4.");
       }
-
-      const input = buildImageInput(model, values, prompt);
-      const result = await runFal<ImageOutput>(model.endpoint, input, "Creating image");
-
-      push(
-        <ResultView
-          title="Created Image"
-          commandType="create-image"
-          mediaKind="image"
-          modelTitle={model.title}
-          endpoint={model.endpoint}
-          requestId={result.requestId}
-          prompt={prompt}
-          media={result.data.images ?? []}
-          output={result.data}
-        />,
-      );
     } catch (error) {
       await showToast({
         style: Toast.Style.Failure,
-        title: "Could not create image",
-        message: error instanceof Error ? error.message : String(error),
+        title: error instanceof Error ? error.message : String(error),
       });
+      return;
     }
+
+    const model = findOptionModel(imageCreateModels, values.model);
+
+    await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
+
+    await runJob<ImageOutput>({
+      label: "Image",
+      commandType: "create-image",
+      mediaKind: "image",
+      modelTitle: model.title,
+      endpoint: model.endpoint,
+      prompt,
+      prepare: async () => ({ input: buildImageInput(model, values, prompt, numImages) }),
+      extractMedia: (data) => data.images ?? [],
+    });
   }
 
   return (
@@ -144,12 +145,7 @@ export default function Command() {
   );
 }
 
-function buildImageInput(model: ImageCreateModel, values: CreateImageValues, prompt: string) {
-  const numImages = parseInteger(values.numImages, 1);
-  if (numImages < 1 || numImages > 4) {
-    throw new Error("Images must be between 1 and 4.");
-  }
-
+function buildImageInput(model: ImageCreateModel, values: CreateImageValues, prompt: string, numImages: number) {
   return {
     prompt,
     num_images: numImages,

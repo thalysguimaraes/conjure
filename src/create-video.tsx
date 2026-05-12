@@ -1,9 +1,9 @@
-import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
+import { Action, ActionPanel, closeMainWindow, Form, PopToRootType, showToast, Toast } from "@raycast/api";
 import { useMemo, useState } from "react";
 import { findOptionModel, videoAspectRatios, videoDurations, videoModels, videoResolutions } from "./model-options";
 import { OptionDropdown } from "./form-fields";
-import { collectSingleMediaUrl, MediaFile, parseOptionalInteger, runFal } from "./fal";
-import { ResultView } from "./result-view";
+import { collectSingleMediaUrl, MediaFile, parseOptionalInteger } from "./fal";
+import { inputDirectory, runJob } from "./jobs";
 
 type CreateVideoValues = {
   model: string;
@@ -27,59 +27,58 @@ type VideoOutput = {
 export default function Command() {
   const [modelId, setModelId] = useState(videoModels[0].id);
   const selectedModel = useMemo(() => findOptionModel(videoModels, modelId), [modelId]);
-  const { push } = useNavigation();
 
   async function handleSubmit(values: CreateVideoValues) {
-    try {
-      const model = findOptionModel(videoModels, values.model);
-      const prompt = values.prompt.trim();
-      if (!prompt) {
-        await showToast({ style: Toast.Style.Failure, title: "Prompt is required" });
+    const prompt = values.prompt.trim();
+    if (!prompt) {
+      await showToast({ style: Toast.Style.Failure, title: "Prompt is required" });
+      return;
+    }
+
+    const model = findOptionModel(videoModels, values.model);
+
+    if (model.inputMode === "image") {
+      const hasStart = (values.imageFiles?.length ?? 0) > 0 || values.imageUrl?.trim();
+      if (!hasStart) {
+        await showToast({ style: Toast.Style.Failure, title: "Add a start frame" });
         return;
       }
-
-      const imageUrl =
-        model.inputMode === "image" ? await collectSingleMediaUrl(values.imageFiles, values.imageUrl) : undefined;
-      const endImageUrl =
-        model.inputMode === "image" && (values.endImageFiles?.length || values.endImageUrl?.trim())
-          ? await collectSingleMediaUrl(values.endImageFiles, values.endImageUrl)
-          : undefined;
-
-      const result = await runFal<VideoOutput>(
-        model.endpoint,
-        {
-          prompt,
-          image_url: imageUrl,
-          end_image_url: endImageUrl,
-          resolution: values.resolution || "720p",
-          duration: values.duration || "auto",
-          aspect_ratio: values.aspectRatio || "auto",
-          generate_audio: values.generateAudio,
-          seed: parseOptionalInteger(values.seed),
-        },
-        "Creating video",
-      );
-
-      push(
-        <ResultView
-          title="Created Video"
-          commandType="create-video"
-          mediaKind="video"
-          modelTitle={model.title}
-          endpoint={model.endpoint}
-          requestId={result.requestId}
-          prompt={prompt}
-          media={result.data.video ? [result.data.video] : []}
-          output={result.data}
-        />,
-      );
-    } catch (error) {
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Could not create video",
-        message: error instanceof Error ? error.message : String(error),
-      });
     }
+
+    const outputDirectory = model.inputMode === "image" ? inputDirectory(values.imageFiles) : undefined;
+
+    await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
+
+    await runJob<VideoOutput>({
+      label: "Video",
+      commandType: "create-video",
+      mediaKind: "video",
+      modelTitle: model.title,
+      endpoint: model.endpoint,
+      prompt,
+      outputDirectory,
+      prepare: async () => {
+        const imageUrl =
+          model.inputMode === "image" ? await collectSingleMediaUrl(values.imageFiles, values.imageUrl) : undefined;
+        const endImageUrl =
+          model.inputMode === "image" && (values.endImageFiles?.length || values.endImageUrl?.trim())
+            ? await collectSingleMediaUrl(values.endImageFiles, values.endImageUrl)
+            : undefined;
+        return {
+          input: {
+            prompt,
+            image_url: imageUrl,
+            end_image_url: endImageUrl,
+            resolution: values.resolution || "720p",
+            duration: values.duration || "auto",
+            aspect_ratio: values.aspectRatio || "auto",
+            generate_audio: values.generateAudio,
+            seed: parseOptionalInteger(values.seed),
+          },
+        };
+      },
+      extractMedia: (data) => (data.video ? [data.video] : []),
+    });
   }
 
   return (

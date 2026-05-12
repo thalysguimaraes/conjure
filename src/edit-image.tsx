@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
+import { Action, ActionPanel, closeMainWindow, Form, PopToRootType, showToast, Toast } from "@raycast/api";
 import { useMemo, useState } from "react";
 import {
   accelerationLevels,
@@ -19,9 +19,8 @@ import {
   parseInteger,
   parseOptionalFloat,
   parseOptionalInteger,
-  runFal,
 } from "./fal";
-import { ResultView } from "./result-view";
+import { inputDirectory, runJob } from "./jobs";
 
 type EditImageValues = {
   model: string;
@@ -48,64 +47,62 @@ type EditImageValues = {
 
 type ImageOutput = {
   images?: MediaFile[];
-  description?: string;
-  seed?: number;
 };
 
 export default function Command() {
   const [modelId, setModelId] = useState(imageEditModels[0].id);
   const selectedModel = useMemo(() => findOptionModel(imageEditModels, modelId), [modelId]);
-  const { push } = useNavigation();
 
   async function handleSubmit(values: EditImageValues) {
-    try {
-      const model = findOptionModel(imageEditModels, values.model);
-      const prompt = values.prompt.trim();
-      if (!prompt) {
-        await showToast({ style: Toast.Style.Failure, title: "Prompt is required" });
-        return;
-      }
+    const prompt = values.prompt.trim();
+    if (!prompt) {
+      await showToast({ style: Toast.Style.Failure, title: "Prompt is required" });
+      return;
+    }
 
-      const imageUrls = await collectMediaUrls(values.imageFiles, values.imageUrls);
-      if (!imageUrls.length) {
-        await showToast({ style: Toast.Style.Failure, title: "Add at least one input image" });
-        return;
-      }
-      if (model.inputMode === "single" && imageUrls.length > 1) {
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "This model accepts one image",
-          message: "Use only the first image or pick a Nano Banana edit model for multiple references.",
-        });
-        return;
-      }
+    const hasFiles = (values.imageFiles?.length ?? 0) > 0;
+    const hasUrls = (values.imageUrls?.trim()?.length ?? 0) > 0;
+    if (!hasFiles && !hasUrls) {
+      await showToast({ style: Toast.Style.Failure, title: "Add at least one input image" });
+      return;
+    }
 
-      const input =
-        model.id === "qwen-image-edit"
-          ? buildQwenInput(values, prompt, imageUrls[0])
-          : buildNanoInput(model, values, prompt, imageUrls);
-      const result = await runFal<ImageOutput>(model.endpoint, input, "Editing image");
-
-      push(
-        <ResultView
-          title="Edited Image"
-          commandType="edit-image"
-          mediaKind="image"
-          modelTitle={model.title}
-          endpoint={model.endpoint}
-          requestId={result.requestId}
-          prompt={prompt}
-          media={result.data.images ?? []}
-          output={result.data}
-        />,
-      );
-    } catch (error) {
+    const model = findOptionModel(imageEditModels, values.model);
+    if (model.inputMode === "single" && hasFiles && values.imageFiles.length > 1) {
       await showToast({
         style: Toast.Style.Failure,
-        title: "Could not edit image",
-        message: error instanceof Error ? error.message : String(error),
+        title: "This model accepts one image",
+        message: "Use only the first image or pick a Nano Banana edit model.",
       });
+      return;
     }
+
+    const outputDirectory = inputDirectory(values.imageFiles);
+
+    await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
+
+    await runJob<ImageOutput>({
+      label: "Edit",
+      commandType: "edit-image",
+      mediaKind: "image",
+      modelTitle: model.title,
+      endpoint: model.endpoint,
+      prompt,
+      outputDirectory,
+      prepare: async () => {
+        const imageUrls = await collectMediaUrls(values.imageFiles, values.imageUrls);
+        if (!imageUrls.length) throw new Error("No usable input images.");
+        if (model.inputMode === "single" && imageUrls.length > 1) {
+          throw new Error("Model accepts only one image.");
+        }
+        const input =
+          model.id === "qwen-image-edit"
+            ? buildQwenInput(values, prompt, imageUrls[0])
+            : buildNanoInput(model, values, prompt, imageUrls);
+        return { input };
+      },
+      extractMedia: (data) => data.images ?? [],
+    });
   }
 
   return (

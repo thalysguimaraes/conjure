@@ -6,7 +6,6 @@ import path from "node:path";
 
 type Preferences = {
   falKey: string;
-  autoDownload?: boolean;
   downloadDirectory?: string;
 };
 
@@ -18,7 +17,7 @@ export function resolveDownloadDirectory(): string {
   const { downloadDirectory } = getExtensionPreferences();
   const trimmed = downloadDirectory?.trim();
   if (trimmed) return trimmed;
-  return path.join(os.homedir(), "Downloads", "FAL AI");
+  return path.join(os.homedir(), "Downloads");
 }
 
 export type MediaFile = {
@@ -136,7 +135,7 @@ export async function uploadLocalFile(filePath: string): Promise<string> {
 export async function downloadMedia(
   url: string,
   baseName: string,
-  options: { silent?: boolean } = {},
+  options: { silent?: boolean; directory?: string } = {},
 ): Promise<string> {
   const response = await fetch(url);
   if (!response.ok) {
@@ -145,7 +144,7 @@ export async function downloadMedia(
 
   const contentType = response.headers.get("content-type") ?? undefined;
   const extension = inferExtensionFromUrl(url) ?? inferExtensionFromMime(contentType) ?? "bin";
-  const directory = resolveDownloadDirectory();
+  const directory = options.directory ?? resolveDownloadDirectory();
   await mkdir(directory, { recursive: true });
 
   const filePath = path.join(directory, `${sanitizeFilename(baseName)}-${Date.now()}.${extension}`);

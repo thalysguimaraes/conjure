@@ -49,22 +49,29 @@ export FAL_KEY="your-fal-key-here"
 
 Then restart Raycast so it picks up the variable.
 
+## How jobs run
+
+Submitting a form **closes Raycast immediately**. The job runs in the background and macOS posts a system notification when it finishes, with the saved file path. Browse all past outputs via the **Recent Generations** command.
+
+## Where outputs are saved
+
+- Jobs **without** a local input file (Create Image, text-to-video) → `~/Downloads` (override with the Download Folder preference).
+- Jobs **with** a local input file (Edit Image, Upscale Image, image-to-video) → **same folder as the input file**, so edits and upscales sit next to their source.
+
 ## Optional preferences
 
 | Preference | Default | Notes |
 | --- | --- | --- |
-| Auto-Download | off | Saves every generated file to disk automatically |
-| Download Folder | `~/Downloads/FAL AI` | Where downloads land |
+| Download Folder | `~/Downloads` | Used only for jobs without a local input. Jobs with a local input always save next to the input. |
 
-## Keyboard shortcuts (result view)
+## Keyboard shortcuts (Recent Generations)
 
 | Shortcut | Action |
 | --- | --- |
 | `⌘D` | Download & open |
 | `⌘⇧D` | Download & show in Finder |
-| `⌘C` | Copy first result URL |
+| `⌘C` | Copy URL |
 | `⌘⇧P` | Copy prompt |
-| `⌘1`–`⌘4` | Open results 2–4 directly |
 
 ## Development
 

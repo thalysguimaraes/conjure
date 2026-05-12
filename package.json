@@ -53,20 +53,11 @@
       "description": "fal.ai API key. Leave empty to fall back to the FAL_KEY environment variable."
     },
     {
-      "name": "autoDownload",
-      "type": "checkbox",
-      "required": false,
-      "title": "Auto-Download",
-      "description": "Automatically save every generated file to the download folder.",
-      "label": "Automatically save generated media to disk",
-      "default": false
-    },
-    {
       "name": "downloadDirectory",
       "type": "directory",
       "required": false,
       "title": "Download Folder",
-      "description": "Where to save results. Defaults to ~/Downloads/FAL AI."
+      "description": "Default folder for outputs from jobs without a local input file (Create Image, Text-to-Video). Defaults to ~/Downloads. Jobs with a local input file always save next to the input."
     }
   ],
   "dependencies": {
